@@ -87,7 +87,7 @@ jobs:
             sleep 1
           done
 
-          if ! grep -q "Running on public URL:" /tmp/gradio.log 2>/dev/null; then
+          if grep -E -q "gradio.live" /tmp/gradio.log 2>/dev/null; then
             echo "⚠️  Public URL did not appear within 60 s. Last log lines:"
             tail -20 /tmp/gradio.log
           fi
