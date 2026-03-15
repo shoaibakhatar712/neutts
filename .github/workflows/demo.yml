@@ -1,0 +1,102 @@
+name: Live Demo
+
+on:
+  workflow_dispatch:
+    inputs:
+      duration_minutes:
+        description: "How long to keep the demo alive (minutes, max 360)"
+        required: false
+        default: "60"
+
+jobs:
+  run-demo:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    permissions:
+      contents: read
+
+    steps:
+      # -----------------------------------------------------------------------
+      # 1. Checkout
+      # -----------------------------------------------------------------------
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # -----------------------------------------------------------------------
+      # 2. Python setup
+      # -----------------------------------------------------------------------
+      - name: Set up Python 3.10
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+          cache: "pip"
+
+      # -----------------------------------------------------------------------
+      # 3. System dependencies (espeak-ng for phonemizer)
+      # -----------------------------------------------------------------------
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends espeak-ng
+
+      # -----------------------------------------------------------------------
+      # 4. Python dependencies
+      # -----------------------------------------------------------------------
+      - name: Install Python dependencies
+        run: |
+          pip install --upgrade pip
+          pip install gradio soundfile
+          pip install -e ".[all]"
+
+      # -----------------------------------------------------------------------
+      # 5. Launch the Gradio demo with share=True
+      #    Gradio prints the public URL to stdout; we capture and echo it.
+      # -----------------------------------------------------------------------
+      - name: Start NeuTTS Gradio demo
+        env:
+          GRADIO_SHARE: "true"
+        run: |
+          DURATION="${{ github.event.inputs.duration_minutes }}"
+          # Validate that DURATION is a positive integer; fall back to default
+          if ! [[ "$DURATION" =~ ^[0-9]+$ ]] || [ "$DURATION" -le 0 ]; then
+            echo "⚠️  Invalid duration '${DURATION}', using default of 60 minutes."
+            DURATION=60
+          fi
+          # Clamp to a safe maximum
+          if [ "$DURATION" -gt 360 ]; then DURATION=360; fi
+
+          echo "Starting Gradio demo (will run for ${DURATION} minutes)..."
+          # Run in background, pipe output to a log file
+          python gradio_app.py --share --port 7860 > /tmp/gradio.log 2>&1 &
+          GRADIO_PID=$!
+
+          # Wait up to 60 s for the public URL to appear
+          echo "Waiting for public URL..."
+          for i in $(seq 1 60); do
+            if grep -q "Running on public URL:" /tmp/gradio.log 2>/dev/null; then
+              PUBLIC_URL=$(grep "Running on public URL:" /tmp/gradio.log | tail -1 | awk '{print $NF}')
+              echo ""
+              echo "============================================================"
+              echo "  ✅ NeuTTS Demo is LIVE!"
+              echo ""
+              echo "  🔗 Click to open: $PUBLIC_URL"
+              echo "============================================================"
+              echo ""
+              break
+            fi
+            sleep 1
+          done
+
+          if ! grep -q "Running on public URL:" /tmp/gradio.log 2>/dev/null; then
+            echo "⚠️  Public URL did not appear within 60 s. Last log lines:"
+            tail -20 /tmp/gradio.log
+          fi
+
+          # Keep the runner alive for the requested duration so the demo stays up
+          echo "Demo will stay alive for ${DURATION} minute(s). Check the URL above."
+          sleep $((DURATION * 60))
+
+          # Shut down the Gradio process if it is still running
+          if kill -0 "$GRADIO_PID" 2>/dev/null; then
+            kill "$GRADIO_PID"
+          fi
