@@ -152,4 +152,5 @@ if __name__ == "__main__":
     parser.add_argument("--port", type=int, default=7860, help="Port to run on (default: 7860)")
     args = parser.parse_args()
 
-    demo.launch(share=args.share, server_port=args.port)
+  """  demo.launch(share=args.share, server_port=args.port)"""
+    demo.launch(share=True, server_port=args.port)
